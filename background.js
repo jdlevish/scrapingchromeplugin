@@ -1,31 +1,64 @@
 // Listener for when the extension is first installed or updated
 chrome.runtime.onInstalled.addListener(() => {
     console.log('Extension installed');
-    // You can add initialization logic here, such as:
-    // - Setting up default settings
-    // - Creating context menu items
-    // - Initializing storage
-  });
-  
-  // Message listener for communication between components
-  chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-    // Check if the message is requesting scraped data
-    if (request.action === "getScrapedData") {
-      // Here you can:
-      // - Process the scraped data
-      // - Store data in chrome.storage
-      // - Send data to a server
-      // - Filter or transform the data
-      
-      // Send a response back to the sender
-      sendResponse({ status: "success" });
+});
+
+// Listen for startup
+chrome.runtime.onStartup.addListener(() => {
+    console.log('Extension listening for clicks');
+});
+
+// Listen for tab updates to inject the content script
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+    if (changeInfo.status === 'complete' && tab.url) {
+        // Skip chrome:// URLs and other restricted URLs
+        if (tab.url.startsWith('chrome://') || tab.url.startsWith('edge://') || 
+            tab.url.startsWith('about:') || tab.url.startsWith('chrome-extension://')) {
+            console.log('Skipping restricted URL:', tab.url);
+            return;
+        }
+        
+        console.log('Injecting content script into tab:', tabId);
+        
+        // Inject the content script
+        chrome.scripting.executeScript({
+            target: { tabId: tabId },
+            files: ['content.js']
+        }).then(() => {
+            console.log('Content script injected successfully into tab:', tabId);
+        }).catch(err => {
+            console.error('Script injection error:', err);
+        });
     }
+});
+
+// Listen for click events from content script
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    console.log('Background script received message:', message);
     
-    // Example of storing data:
-    chrome.storage.local.set({ 
-      scrapedData: request.data 
-    }, () => {
-      sendResponse({ status: "data stored" });
-    });
-    
-  });
+    if (message.action === "clickEvent") {
+        const clickData = message.data;
+        console.log('Click recorded:', {
+            url: clickData.url,
+            element: clickData.tagName,
+            id: clickData.id,
+            class: clickData.className,
+            text: clickData.innerText,
+            time: clickData.timestamp
+        });
+        //send clck data to content script
+       
+        
+        // Store click data in chrome.storage
+        chrome.storage.local.get(['clicks'], function(result) {
+            const clicks = result.clicks || [];
+            clicks.push(clickData);
+            chrome.storage.local.set({ clicks: clicks }, function() {
+                console.log('Click data stored');
+            });
+        });
+        
+        sendResponse({ status: "click recorded" });
+        return true; // Keep the message channel open for async response
+    }
+});
